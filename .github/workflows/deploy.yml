@@ -1,0 +1,74 @@
+# 把原生 JS 版部署到 GitHub Pages。
+#
+# 这个版本没有构建步骤，仓库里的 HTML/CSS/JS 就是最终产物；
+# workflow 只做一件事：把端点地址从仓库 Secrets 写成 site.config.js。
+#
+# site.config.js 含真实的 CloudBase 环境 ID，不能进公开仓库，
+# 所以不能直接用「Deploy from a branch」——那样线上会缺这个文件，
+# 页面只能退回只读、读不到云端内容。由 Actions 在构建时注入是唯一干净的做法。
+
+name: 部署到 GitHub Pages
+
+on:
+  # 每次推到 main 自动部署
+  push:
+    branches: [main]
+  # 也允许在 Actions 页面手动触发（第一次配置完要点这个）
+  workflow_dispatch:
+
+# 部署 Pages 需要写权限，给到最小够用
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同时跑多个部署会互相打架，排队、但不中断正在进行的那次
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 由 Secrets 生成 site.config.js
+        # 用引号包裹的 heredoc，避免 shell 去解释 URL 里的字符；
+        # 不打印内容，免得真实端点出现在构建日志里。
+        run: |
+          cat > site.config.js <<'SITE_CONFIG'
+          (function (root) {
+              root.SITE_CONFIG = {
+                  contactEndpoint: '${{ secrets.CONTACT_ENDPOINT }}',
+                  contentEndpoint: '${{ secrets.CONTENT_ENDPOINT }}',
+                  siteUrl: 'https://lee-orlando.github.io/lyq-portfolio'
+              };
+          })(typeof window !== 'undefined' ? window : globalThis);
+          SITE_CONFIG
+          echo "site.config.js 已生成"
+
+      - name: 收集要发布的文件
+        # 只发布站点本身需要的部分：云函数和工具脚本不属于静态站
+        run: |
+          mkdir -p _site
+          cp index.html space.html 404.html favicon.svg og-image.svg site.config.js _site/
+          cp -r css js _site/
+          find _site -type f | sort
+
+      - name: 上传为 Pages 产物
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 发布到 Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
