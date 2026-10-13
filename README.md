@@ -290,6 +290,34 @@ tcb fn deploy content --dir ./cloudfunctions/content --path /content --runtime N
 >
 > 另外 `tcb routes add` 对系统分配的内置域名不生效，访问路由只能靠 `fn deploy --path` 自动建。
 
+#### 可选：留言到达时发邮件通知
+
+不配也能正常收留言，只是留言静静躺在云存储里，没人提醒你。
+要开启的话，在**云函数 `contact` 的环境变量**里填下面几项（控制台：云函数 → contact → 函数配置 → 环境变量）：
+
+| 变量 | 值 | 必填 |
+| --- | --- | --- |
+| `MAIL_HOST` | `smtp.qq.com` | 否，代码有默认值 |
+| `MAIL_PORT` | `587` | 否，默认 587（STARTTLS）；填 `465` 走隐式 TLS，改数字即可切换，不必重新部署代码 |
+| `MAIL_USER` | 你的发件邮箱全址 | 是 |
+| `MAIL_PASS` | 邮箱的**客户端授权码**（不是登录密码） | 是 |
+| `MAIL_TO` | 收通知的邮箱 | 否，默认同 `MAIL_USER` |
+| `MAIL_NAME` | 发件人显示名 | 否，默认「作品集站点」 |
+
+几个刻意的设计：
+
+- **先存盘，再发信**。留言是你的资产，邮件只是提醒。发信失败只写日志，
+  返回给访客的仍然是「提交成功」——绝不能因为提醒没发出去就谎报失败。
+- **没配 `MAIL_USER` / `MAIL_PASS` 就整段跳过**，不会因为有通知功能而拖垮表单。
+- **零依赖**：`mail.js` 用 Node 内置的 `net`/`tls` 自己实现 SMTP，没引入 nodemailer，
+  包体积小、冷启动快。代价是它没经过大规模验证，出问题就看日志逐个环节排查。
+- **不要走 25 端口**：腾讯云默认封禁 25 出站。
+- **重新部署后记得复查环境变量还在不在**——CLI 部署有可能把它清掉。
+- 函数的**超时时间要放宽到 20 秒**（发信最多占 8 秒）。
+  `cloudbaserc.json` 顶层的 `functions[].timeout` 会被 CLI 读取生效；
+  注意 CloudBase CLI 认的是顶层 `functionRoot` + `functions`，
+  不认 `framework.plugins.fn.inputs` 里那份（那份是给 `cloudbase framework deploy` 用的）。
+
 拿到形如 `https://<env>.service.tcloudbase.com/contact` 的地址后，填进 `site.config.js`
 （从 `site.config.example.js` 复制而来）：
 
