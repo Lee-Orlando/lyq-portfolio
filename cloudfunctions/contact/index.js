@@ -17,6 +17,7 @@
 'use strict';
 
 const cloudbase = require('@cloudbase/node-sdk');
+const { sendMail, renderMessageMail } = require('./mail');
 
 // 使用当前云函数所属环境，免去在每个环境里改 env id
 const app = cloudbase.init({
@@ -219,6 +220,19 @@ exports.main = async (event = {}, context = {}) => {
         items.push(record);
 
         await writeMessages(cloudPath, items);
+
+        // 走到这里留言已经落盘了，发信只是附加动作。
+        // 失败只记日志，绝不改变返回给访客的结果——
+        // 留言是资产，不能因为提醒没发出去就让访客看到「提交失败」。
+        try {
+            const mail = await sendMail({
+                subject: `作品集新留言：${record.name}`,
+                body: renderMessageMail(record)
+            });
+            console.log('[contact] 邮件通知:', mail.skipped ? mail.reason : mail.detail);
+        } catch (error) {
+            console.error('[contact] 邮件通知失败（留言已保存）:', error && error.message);
+        }
 
         return respond(201, {
             ok: true,
